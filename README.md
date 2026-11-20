@@ -7,6 +7,8 @@ a restart.
 
 **Stack:** Python 3.12 · FastAPI · LangGraph · Postgres · JWT
 
+**Demo video (2 min):** [Watch on Google Drive](https://drive.google.com/file/d/12JtSd7zmEJvzFHoFIwVF0-fHzeVGKVnE/view?usp=sharing)
+
 ## Features
 
 - Understands vague requests ("can I go a bit late?") and follow-ups ("make it 8 instead")
