@@ -1,0 +1,333 @@
+<!doctype html>
+<!-- Demo page only. It just calls the HTTP API; all logic lives in the backend.
+     Left: pick who you are. Middle: employee chat. Right: that employee's trips
+     (updates live) and the manager inbox. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cab Desk Agent</title>
+<style>
+  :root {
+    --bg:#f3f4f8; --card:#ffffff; --text:#151a2d; --muted:#667085; --line:#e4e7ef;
+    --accent:#4f46e5; --accent-soft:#eef0ff; --bot:#f1f3f9; --ok:#12805c; --ok-soft:#e7f6ef;
+    --bad:#c4321c; --bad-soft:#fdecea; --warn:#9a6700; --warn-soft:#fff7e0; --shadow:0 1px 2px rgba(16,24,40,.06), 0 4px 16px rgba(16,24,40,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0f1220; --card:#171b2e; --text:#e8eaf3; --muted:#9aa1b9; --line:#272c45;
+      --accent:#8b85ff; --accent-soft:#25264a; --bot:#20253c; --ok:#4cc79a; --ok-soft:#173329;
+      --bad:#ff7a66; --bad-soft:#3a1f1c; --warn:#f2c14e; --warn-soft:#352c14; --shadow:none;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+         background:var(--bg); color:var(--text); }
+  button, input { font:inherit; color:inherit; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 22px; }
+  header .logo { width:34px; height:34px; border-radius:10px; background:var(--accent); color:#fff;
+                 display:grid; place-items:center; font-size:18px; }
+  header h1 { margin:0; font-size:17px; }
+  header p { margin:0; color:var(--muted); font-size:13px; }
+  header .clock { margin-left:auto; font-size:13px; color:var(--muted); background:var(--card);
+                  border:1px solid var(--line); padding:6px 10px; border-radius:999px; }
+  main { display:grid; grid-template-columns:250px minmax(0,1fr) 320px; gap:16px;
+         padding:0 22px 22px; height:calc(100vh - 66px); }
+  @media (max-width:1050px) { main { grid-template-columns:1fr; height:auto; padding:0 16px 16px; }
+                              .chat { height:75vh; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+  .col { display:flex; flex-direction:column; gap:16px; min-height:0; }
+  h2 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 10px; }
+
+  /* people */
+  .people { padding:16px; overflow-y:auto; }
+  .company { margin-bottom:18px; }
+  .company b { display:block; }
+  .rules { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0 8px; }
+  .chip { font-size:11.5px; padding:2px 8px; border-radius:999px; background:var(--bot); color:var(--muted); }
+  .person { display:flex; align-items:center; gap:10px; width:100%; padding:7px 8px; border:0;
+            background:none; border-radius:10px; cursor:pointer; text-align:left; }
+  .person:hover { background:var(--bot); }
+  .person.active { background:var(--accent-soft); }
+  .avatar { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-size:13px;
+            font-weight:600; color:#fff; flex:none; }
+  .person small { display:block; color:var(--muted); font-size:12px; line-height:1.2; }
+  .badge { margin-left:auto; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+
+  /* chat */
+  .chat { display:flex; flex-direction:column; min-height:0; }
+  .chat-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
+  .chat-head .who { font-weight:600; } .chat-head small { color:var(--muted); display:block; font-size:12px; }
+  .toggle { margin-left:auto; font-size:12.5px; color:var(--muted); display:flex; gap:6px; align-items:center; cursor:pointer; }
+  #log { flex:1; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:10px; }
+  .row { display:flex; gap:8px; align-items:flex-end; max-width:82%; animation:pop .18s ease-out; }
+  @keyframes pop { from { opacity:0; transform:translateY(4px); } }
+  .row.me { align-self:flex-end; flex-direction:row-reverse; }
+  .bubble { padding:9px 13px; border-radius:16px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .me .bubble { background:var(--accent); color:#fff; border-bottom-right-radius:5px; }
+  .bot .bubble { background:var(--bot); border-bottom-left-radius:5px; }
+  .bot-face { width:26px; height:26px; border-radius:8px; background:var(--accent); color:#fff;
+              display:grid; place-items:center; font-size:13px; flex:none; }
+  .meta { font-size:11.5px; color:var(--muted); margin:-4px 0 0 34px; display:none; }
+  .details .meta { display:block; }
+  .notice { align-self:center; max-width:90%; background:var(--warn-soft); color:var(--text);
+            border:1px solid color-mix(in srgb, var(--warn) 30%, transparent); padding:9px 13px;
+            border-radius:12px; white-space:pre-wrap; animation:pop .18s ease-out; }
+  .notice b { color:var(--warn); }
+  .typing span { display:inline-block; width:6px; height:6px; margin:0 1px; border-radius:50%;
+                 background:var(--muted); animation:blink 1s infinite; }
+  .typing span:nth-child(2) { animation-delay:.15s; } .typing span:nth-child(3) { animation-delay:.3s; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .empty { margin:auto; text-align:center; color:var(--muted); max-width:340px; }
+  .empty .big { font-size:36px; }
+  #chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 16px 10px; }
+  #chips button { border:1px solid var(--accent); color:var(--accent); background:var(--card);
+                  padding:5px 12px; border-radius:999px; cursor:pointer; font-size:13.5px; }
+  #chips button:hover { background:var(--accent-soft); }
+  form { display:flex; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--line); }
+  form input { flex:1; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--card); }
+  form input:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+  .btn { border:0; border-radius:10px; padding:9px 16px; background:var(--accent); color:#fff; cursor:pointer; font-weight:500; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn.ok { background:var(--ok); } .btn.bad { background:var(--bad); }
+  .btn.small { padding:6px 12px; font-size:13.5px; }
+
+  /* trips + inbox */
+  .panel { padding:16px; }
+  .panel.grow { flex:1; overflow-y:auto; min-height:180px; }
+  .trip { display:flex; align-items:center; gap:12px; padding:10px; border-radius:12px; border:1px solid var(--line);
+          margin-bottom:8px; transition:background .6s; }
+  .trip.flash { background:var(--ok-soft); }
+  .trip .icon { font-size:20px; }
+  .trip .time { font-size:18px; font-weight:600; }
+  .trip small { display:block; color:var(--muted); font-size:12px; }
+  .tag { margin-left:auto; font-size:11.5px; padding:2px 8px; border-radius:999px; background:var(--warn-soft); color:var(--warn); text-align:center; }
+  .hint { color:var(--muted); font-size:13.5px; }
+  .req { border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; animation:pop .18s ease-out; }
+  .req .change { font-weight:600; margin:2px 0; }
+  .req small { display:block; color:var(--muted); font-size:12.5px; margin-bottom:8px; }
+  .req input { width:100%; padding:7px 10px; border:1px solid var(--line); border-radius:9px; margin-bottom:8px; background:var(--card); }
+  .req .actions { display:flex; gap:8px; }
+  .result { font-size:13px; padding:8px 10px; border-radius:9px; margin-bottom:10px; }
+  .result.APPROVED { background:var(--ok-soft); color:var(--ok); }
+  .result.REJECTED, .result.FAILED { background:var(--bad-soft); color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🚕</div>
+  <div><h1>Cab Desk Agent</h1><p>Shift-change requests by chat, with each company's rules enforced in code</p></div>
+  <div class="clock" id="clock">demo clock</div>
+</header>
+
+<main>
+  <aside class="card people" id="people"><h2>Sign in as</h2></aside>
+
+  <section class="card chat" id="chat">
+    <div class="chat-head">
+      <div class="avatar" id="me-avatar" style="background:var(--muted)">?</div>
+      <div><div class="who" id="me-name">Nobody signed in</div><small id="me-company">Pick an employee on the left</small></div>
+      <label class="toggle"><input type="checkbox" id="details"> agent details</label>
+    </div>
+    <div id="log">
+      <div class="empty"><div class="big">💬</div>
+        Pick an employee on the left, then ask things like
+        <i>"can I go a bit late today?"</i> or <i>"I'm on leave tomorrow"</i>.</div>
+    </div>
+    <div id="chips"></div>
+    <form id="form">
+      <input id="text" placeholder="Message the cab desk…" autocomplete="off" maxlength="500" disabled>
+      <button class="btn" id="send" disabled>Send</button>
+    </form>
+  </section>
+
+  <div class="col">
+    <section class="card panel">
+      <h2>Their trips</h2>
+      <div id="trips" class="hint">Sign in as an employee to see their bookings.</div>
+    </section>
+    <section class="card panel grow">
+      <h2 id="inbox-title">Manager inbox</h2>
+      <div id="results"></div>
+      <div id="reqs" class="hint">Pick a manager on the left to approve or reject requests.</div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const COLORS = ["#4f46e5", "#0e9384", "#c11574", "#dc6803", "#1570ef", "#7a5af8", "#039855"];
+const STARTERS = ["Show my cabs", "Can I leave a bit later today?", "I'm on leave tomorrow", "What's the cut-off?"];
+let emp = null, mgr = null, busy = false, lastTrips = "";
+
+async function api(path, token, body) {
+  try {
+    const res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return await res.json();
+  } catch { return { reply: "The server did not answer. Please try again." }; }
+}
+
+// ---- people (left) --------------------------------------------------------
+async function loadPeople() {
+  const r = await api("/demo/people");
+  $("clock").textContent = "🕔 " + r.now + " (frozen for the demo)";
+  const byCompany = {};
+  r.people.forEach((p, i) => { p.color = COLORS[i % COLORS.length]; (byCompany[p.company] ||= []).push(p); });
+  for (const [company, people] of Object.entries(byCompany)) {
+    const c = people[0], box = el("div", "company");
+    box.appendChild(el("b", null, company));
+    const rules = el("div", "rules");
+    [`${c.cutoff_minutes}-min cut-off`, `${c.cab_capacity} seats/cab`,
+     c.escalation_allowed ? "manager can override" : "no override"].forEach((t) => rules.appendChild(el("span", "chip", t)));
+    box.appendChild(rules);
+    people.forEach((p) => {
+      const b = el("button", "person"); b.dataset.id = p.id;
+      const av = el("div", "avatar", p.name[0]); av.style.background = p.color;
+      const who = el("div"); who.appendChild(el("span", null, p.name)); who.appendChild(el("small", null, p.id));
+      b.append(av, who);
+      if (p.role === "manager") b.appendChild(el("span", "badge", "manager"));
+      b.onclick = () => (p.role === "manager" ? signInManager(p) : signInEmployee(p));
+      box.appendChild(b);
+    });
+    $("people").appendChild(box);
+  }
+}
+
+async function token(p) { return (await api("/auth/token", null, { employee_id: p.id })).token; }
+
+function markActive() {
+  document.querySelectorAll(".person").forEach((b) =>
+    b.classList.toggle("active", b.dataset.id === emp?.id || b.dataset.id === mgr?.id));
+}
+
+// ---- employee chat (middle) ----------------------------------------------
+async function signInEmployee(p) {
+  emp = { ...p, token: await token(p) };
+  $("me-avatar").textContent = p.name[0]; $("me-avatar").style.background = p.color;
+  $("me-name").textContent = p.name; $("me-company").textContent = `${p.company} · ${p.id}`;
+  $("log").innerHTML = ""; lastTrips = "";
+  $("text").disabled = $("send").disabled = false; $("text").focus();
+  bot(`Hi ${p.name.split(" ")[0]}! I'm your cab desk assistant. How can I help?`);
+  chips(STARTERS); markActive(); loadTrips();
+}
+
+function scroll() { $("log").scrollTop = $("log").scrollHeight; }
+
+function me(text) {
+  const row = el("div", "row me"); row.appendChild(el("div", "bubble", text));
+  $("log").appendChild(row); scroll();
+}
+
+function bot(text, meta) {
+  const row = el("div", "row bot");
+  row.append(el("div", "bot-face", "🚕"), el("div", "bubble", text));
+  $("log").appendChild(row);
+  if (meta) $("log").appendChild(el("div", "meta", meta));
+  scroll();
+}
+
+function notice(text) {
+  const n = el("div", "notice"); n.append(el("b", null, "🔔 Update  "), document.createTextNode(text));
+  $("log").appendChild(n); scroll(); loadTrips();
+}
+
+function chips(list) {
+  $("chips").innerHTML = "";
+  list.forEach((t) => { const b = el("button", null, t); b.type = "button"; b.onclick = () => send(t); $("chips").appendChild(b); });
+}
+
+async function send(text) {
+  text = (text ?? $("text").value).trim();
+  if (!text || !emp || busy) return;
+  busy = true; $("text").value = ""; chips([]); me(text);
+  const typing = el("div", "row bot");
+  typing.append(el("div", "bot-face", "🚕"), el("div", "bubble typing"));
+  typing.lastChild.innerHTML = "<span></span><span></span><span></span>";
+  $("log").appendChild(typing); scroll();
+
+  const t0 = performance.now();
+  const r = await api("/chat", emp.token, { message: text });
+  const ms = Math.round(performance.now() - t0);
+  typing.remove();
+  (r.notifications || []).forEach(notice);
+  bot(r.reply, `tool: ${r.tool ?? "–"} · LLM calls: ${r.llm_calls ?? 0} · ${ms} ms`);
+  chips(r.suggestions?.length ? r.suggestions : STARTERS);
+  busy = false; $("text").focus(); loadTrips();
+}
+
+$("form").onsubmit = (e) => { e.preventDefault(); send(); };
+$("details").onchange = (e) => $("chat").classList.toggle("details", e.target.checked);
+
+// ---- trips (right, top) ----------------------------------------------------
+async function loadTrips() {
+  if (!emp) return;
+  const r = await api("/me/trips", emp.token);
+  const key = JSON.stringify(r.trips);
+  const changed = lastTrips && key !== lastTrips; lastTrips = key;
+  const box = $("trips"); box.innerHTML = ""; box.className = "";
+  if (!r.trips?.length) { box.className = "hint"; box.textContent = "No upcoming bookings."; return; }
+  r.trips.forEach((t) => {
+    const row = el("div", "trip" + (changed ? " flash" : ""));
+    const info = el("div");
+    info.append(el("div", "time", t.time), el("small", null, `${t.direction} ${t.day} · cab ${t.cab_no}`));
+    row.append(el("div", "icon", t.direction === "pickup" ? "🌅" : "🌙"), info);
+    if (t.waiting_for) row.appendChild(el("span", "tag", `waiting for manager → ${t.waiting_for}`));
+    box.appendChild(row);
+    if (changed) setTimeout(() => row.classList.remove("flash"), 1500);
+  });
+}
+
+// ---- manager inbox (right, bottom) ----------------------------------------
+async function signInManager(p) {
+  mgr = { ...p, token: await token(p) };
+  $("inbox-title").textContent = `Inbox · ${p.name} (${p.company})`;
+  $("results").innerHTML = ""; markActive(); loadRequests();
+}
+
+async function loadRequests() {
+  if (!mgr) return;
+  const r = await api("/manager/requests", mgr.token);
+  const box = $("reqs");
+  if (box.contains(document.activeElement)) return;  // don't wipe a note being typed
+  box.innerHTML = ""; box.className = "";
+  if (!r.requests?.length) { box.className = "hint"; box.textContent = "No requests waiting. 🎉"; return; }
+  r.requests.forEach((q) => {
+    const card = el("div", "req");
+    card.append(el("div", null, q.name),
+                el("div", "change", `${q.direction} ${q.day}: ${q.from_time} → ${q.to_time}`),
+                el("small", null, q.reason));
+    const note = el("input"); note.placeholder = "Note to the employee (optional)"; note.maxLength = 300;
+    const actions = el("div", "actions");
+    const ok = el("button", "btn ok small", "Approve"), no = el("button", "btn bad small", "Reject");
+    ok.onclick = () => decide(q, true, note.value, card); no.onclick = () => decide(q, false, note.value, card);
+    actions.append(ok, no); card.append(note, actions); box.appendChild(card);
+  });
+}
+
+async function decide(q, approve, note, card) {
+  card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  const r = await api(`/manager/requests/${q.id}/decision`, mgr.token, { approve, note: note || null });
+  const status = r.status || "FAILED";
+  const text = { APPROVED: `✓ Approved ${q.name}'s change. The seat is moved and they've been told.`,
+                 REJECTED: `✗ Rejected ${q.name}'s change. They've been told.`,
+                 FAILED: `Approved, but it couldn't be applied (the rules were re-checked). ${q.name} has been told why.` }[status]
+               || r.reply;
+  $("results").prepend(el("div", "result " + status, text));
+  document.activeElement?.blur(); loadRequests();
+}
+
+// Light polling: manager decisions reach the chat, new requests reach the inbox.
+setInterval(async () => {
+  if (emp) (await api("/notifications", emp.token)).notifications?.forEach(notice);
+  loadRequests();
+}, 3000);
+
+loadPeople();
+</script>
+</body>
+</html>

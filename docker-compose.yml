@@ -1,0 +1,35 @@
+# One command: `docker compose up --build`  ->  http://localhost:8000
+# Tests:       `docker compose run --rm api pytest`
+# Eval:        `docker compose run --rm api python -m eval.run`
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: transport
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # keeps paused approvals across restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d transport"]
+      interval: 2s
+      retries: 20
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/transport
+      # Values below come from your shell or a local .env file (see .env.example).
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-qwen/qwen3.8-27b}
+      DEMO_TIME: ${DEMO_TIME:-17:00}
+      FAULTS: ${FAULTS:-}
+
+volumes:
+  pgdata:
