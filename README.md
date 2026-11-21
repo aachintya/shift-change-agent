@@ -37,6 +37,17 @@ Open http://localhost:8000. For live chat, add a free Groq key first:
 
 To write eval results back to your checkout, add `-v "$PWD/eval:/srv/eval"` after `--rm`.
 
+### Evaluation set
+
+The filled evaluation set, with the fields `id, input, expected, actual, pass, notes`, is:
+
+- **[`eval/results.jsonl`](eval/results.jsonl)**: offline run (fake LLM), **43/43 pass**
+- **[`eval/results_real.jsonl`](eval/results_real.jsonl)**: real LLM (`qwen/qwen3.8-27b` on Groq), **42/43 pass**
+
+[`eval/cases.jsonl`](eval/cases.jsonl) holds the same 43 cases as input only, so `actual` and `pass` are empty.
+`python -m eval.run` reads it and writes `results.jsonl` (or `results_real.jsonl` with `--real`).
+Method and the one failure are explained in [EVALUATION.md](EVALUATION.md).
+
 ### Sample data
 
 | Company | Cut-off | Seats/cab | Manager override |
